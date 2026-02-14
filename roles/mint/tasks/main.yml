@@ -23,9 +23,11 @@
     state: directory
     mode: "0755"
 
-- name: Install Python mnemonic library
+- name: Install Python libraries for mint setup
   ansible.builtin.pip:
-    name: mnemonic
+    name:
+      - mnemonic
+      - bech32
     state: present
     break_system_packages: true
 
@@ -35,15 +37,23 @@
   register: generated_mnemonic
   changed_when: false
 
-- name: Set mint mnemonic fact
+- name: Convert npub to hex pubkey
+  ansible.builtin.command:
+    cmd: "python3 -c \"from bech32 import bech32_decode, convertbits; hrp, data = bech32_decode('{{ npub }}'); print(bytes(convertbits(data, 5, 8, False)).hex())\""
+  register: npub_hex_result
+  changed_when: false
+
+- name: Set mint facts
   ansible.builtin.set_fact:
     mint_mnemonic: "{{ generated_mnemonic.stdout }}"
+    mint_pubkey_hex: "{{ npub_hex_result.stdout }}"
 
 # Write the npub and mnemonic to a file in the mint's data dir for reference
 - name: Record operator metadata
   ansible.builtin.copy:
     content: |
       npub={{ npub }}
+      pubkey_hex={{ mint_pubkey_hex }}
       subdomain={{ mint_subdomain }}
       fqdn={{ mint_fqdn }}
       mnemonic={{ mint_mnemonic }}
@@ -88,6 +98,7 @@
        TollGate Mint Deployed Successfully!
       ============================================
        Operator npub : {{ npub }}
+       Pubkey (hex)  : {{ mint_pubkey_hex }}
        Subdomain     : {{ mint_subdomain }}
        Mint URL      : {{ mint_scheme }}://{{ mint_fqdn }}
        Container     : {{ mint_container_name }}

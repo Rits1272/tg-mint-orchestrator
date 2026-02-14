@@ -18,7 +18,9 @@ services:
       CDK_MINTD_MNEMONIC: "{{ mint_mnemonic }}"
 
       # --- Mint Info ---
-      CDK_MINTD_INFO_DESCRIPTION: "TollGate mint for {{ npub }}"
+      CDK_MINTD_MINT_PUBKEY: "{{ mint_pubkey_hex }}"
+      CDK_MINTD_MINT_DESCRIPTION: "TollGate mint for {{ npub }}"
+      CDK_MINTD_MINT_CONTACT_NOSTR: "{{ mint_pubkey_hex }}"
     volumes:
       - {{ mint_data_dir }}:/root/.cdk-mintd
     labels:
