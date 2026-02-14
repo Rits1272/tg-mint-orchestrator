@@ -12,7 +12,7 @@
   ansible.builtin.fail:
     msg: >
       Mint '{{ mint_container_name }}' already exists for npub {{ npub }}.
-      URL: https://{{ mint_fqdn }}
+      URL: {{ mint_scheme }}://{{ mint_fqdn }}
       To redeploy, first remove it manually:
         docker compose -f {{ mint_data_dir }}/docker-compose.yml down
   when: existing_mint.exists
@@ -64,15 +64,13 @@
     pull: always
 
 - name: Wait for mint to be healthy
-  ansible.builtin.uri:
-    url: "http://127.0.0.1/v1/info"
-    method: GET
-    headers:
-      Host: "{{ mint_fqdn }}"
+  ansible.builtin.command:
+    cmd: "curl -sf -H 'Host: {{ mint_fqdn }}' http://127.0.0.1/v1/info"
   register: mint_health
   retries: 10
-  delay: 3
-  until: mint_health.status == 200
+  delay: 5
+  until: mint_health.rc == 0
+  changed_when: false
   ignore_errors: true
 
 - name: Register mint in registry

@@ -1,4 +1,4 @@
-# TollGate Cashu Mint Infrastructure
+# TollGate Cashu Mint Orchestrator
 
 Ansible playbook for deploying per-operator [CDK](https://github.com/cashubtc/cdk) Cashu mints on a VPS for [TollGate](https://tollgate.me). Each TollGate operator gets their own mint tied to their Nostr npub, accessible at a unique subdomain.
 
@@ -27,107 +27,159 @@ Ansible playbook for deploying per-operator [CDK](https://github.com/cashubtc/cd
 
 ## Prerequisites
 
-- A VPS running **Ubuntu 20.04+** or **Debian 11+** (x86_64 or arm64) with root SSH access
-- A domain with wildcard DNS configured:
-  - `*.mints.tollgate.me` → `<VPS_IP>`
-- DNS provider API credentials (for Let's Encrypt wildcard certs)
-- Ansible 2.14+ on your local machine:
-  ```bash
-  pip install ansible
-  ansible-galaxy collection install community.docker community.general
-  ```
+**On your local machine:**
 
-## Quick Start (Testing - No Domain Required)
+- Python 3.8+
+- Ansible 2.14+
+- `sshpass` (only if using password-based SSH)
 
-The default config uses **sslip.io** for free wildcard DNS — no domain purchase or DNS config needed.
+**Target VPS:**
 
-### 1. Configure
+- Ubuntu 20.04+ or Debian 11+ (x86_64 or arm64)
+- Root SSH access (key-based or password)
+- Ports 22, 80, and 443 open at the hosting provider level
 
-Edit `group_vars/all.yml` — just set your VPS IP:
+**For production (optional):**
+
+- A domain with wildcard DNS (e.g., `*.mints.tollgate.me` → VPS IP)
+- DNS provider API credentials for Let's Encrypt wildcard TLS certificates
+
+## Install Dependencies
+
+```bash
+# Install Ansible
+pip install ansible
+
+# Install required Ansible collections
+ansible-galaxy collection install community.docker community.general
+
+# macOS only: install sshpass if using password-based SSH
+brew install hudochenkov/sshpass/sshpass
+```
+
+## Quick Start (Test Mode — No Domain Required)
+
+The default config uses [sslip.io](https://sslip.io) for free wildcard DNS — no domain purchase or DNS setup needed. Mints are served over HTTP.
+
+### 1. Configure your VPS IP
+
+Edit `group_vars/all.yml`:
 
 ```yaml
-vps_ip: "203.0.113.10"      # Your VPS IP
+vps_ip: "<YOUR_VPS_IP>"
 tls_enabled: false           # Already the default
 ```
 
-That's it. sslip.io automatically resolves `*.mints.203.0.113.10.sslip.io` → `203.0.113.10`.
-
-### 2. Install Ansible (on your local machine)
+### 2. Setup the VPS (run once)
 
 ```bash
-pip install ansible
-ansible-galaxy collection install community.docker community.general
+./scripts/setup-vps.sh <YOUR_VPS_IP>
 ```
 
-### 3. Setup VPS (once)
+This installs Docker, starts Traefik, and configures the firewall. You'll be prompted for the SSH password.
+
+To pass the password non-interactively:
 
 ```bash
-ansible-playbook playbook.yml --tags setup -e vps_ip=203.0.113.10
+./scripts/setup-vps.sh -p <SSH_PASSWORD> <YOUR_VPS_IP>
+# or
+TG_SSH_PASS=<SSH_PASSWORD> ./scripts/setup-vps.sh <YOUR_VPS_IP>
 ```
 
-This installs Docker, starts Traefik (HTTP only), and configures the firewall.
-
-### 4. Deploy a mint
+### 3. Deploy a mint
 
 ```bash
-./scripts/deploy-mint.sh npub1a3b7c9d2e4f1g8h0j2k4l6m8n0p2q4r6s8t0u2v4w6x8y0z2a4b6c8d0e2
+./scripts/deploy-mint.sh <YOUR_VPS_IP> <OPERATOR_NPUB>
 ```
 
-### 5. Test it
+### 4. Test it
 
 ```bash
-# The mint URL will be printed at the end of the deploy. Example:
-curl http://a3b7c9d2e4f1.mints.203.0.113.10.sslip.io/v1/info
+# The mint URL is printed at the end of the deploy output. Example:
+curl http://<SUBDOMAIN>.mints.<YOUR_VPS_IP>.sslip.io/v1/info
 ```
 
 You should get back JSON with the mint's info, keysets, and supported NUTs.
 
 ---
 
-## Production Setup (With Domain + TLS)
-
-When you're ready to go live with a real domain:
+## Production Setup (Domain + HTTPS)
 
 ### 1. Configure
 
 Edit `group_vars/all.yml`:
 
 ```yaml
-vps_ip: "203.0.113.10"
-tls_enabled: true                        # Enable HTTPS
-mint_domain: "mints.tollgate.me"         # Your domain
-acme_email: "admin@tollgate.me"          # Let's Encrypt email
-acme_dns_provider: "cloudflare"          # Your DNS provider
+vps_ip: "<YOUR_VPS_IP>"
+tls_enabled: true
+mint_domain: "<YOUR_DOMAIN>"              # e.g. "mints.tollgate.me"
+acme_email: "<YOUR_EMAIL>"
+acme_dns_provider: "<DNS_PROVIDER>"       # e.g. "cloudflare"
 acme_env_vars:
-  CF_API_EMAIL: "you@example.com"
-  CF_DNS_API_TOKEN: "your-token-here"
+  CF_API_EMAIL: "<CLOUDFLARE_EMAIL>"
+  CF_DNS_API_TOKEN: "<CLOUDFLARE_TOKEN>"
 ```
+
+See [Traefik ACME providers](https://doc.traefik.io/traefik/https/acme/#providers) for the full list of supported DNS providers and their required environment variables.
 
 ### 2. Set up wildcard DNS
 
-Add one DNS record: `*.mints.tollgate.me` → `203.0.113.10`
+Add a DNS record at your registrar:
 
-### 3. Setup VPS (re-run to enable TLS)
+```
+*.<YOUR_DOMAIN>  →  <YOUR_VPS_IP>  (A record)
+```
+
+### 3. Setup VPS
 
 ```bash
-ansible-playbook playbook.yml --tags setup -e vps_ip=203.0.113.10
+./scripts/setup-vps.sh <YOUR_VPS_IP>
 ```
 
 ### 4. Deploy mints
 
 ```bash
-./scripts/deploy-mint.sh npub1a3b7c9d2e4f1g8h0j2k4l6m8n0p2q4r6s8t0u2v4w6x8y0z2a4b6c8d0e2
+./scripts/deploy-mint.sh <YOUR_VPS_IP> <OPERATOR_NPUB>
 ```
 
-Mint will be at `https://a3b7c9d2e4f1.mints.tollgate.me`.
+The mint will be at `https://<SUBDOMAIN>.<YOUR_DOMAIN>`.
+
+## SSH Authentication
+
+All scripts support three methods for SSH auth:
+
+| Method | Example |
+|--------|---------|
+| Interactive prompt | `./scripts/deploy-mint.sh <VPS_IP> <NPUB>` |
+| `-p` flag | `./scripts/deploy-mint.sh -p <PASSWORD> <VPS_IP> <NPUB>` |
+| Environment variable | `TG_SSH_PASS=<PASSWORD> ./scripts/deploy-mint.sh <VPS_IP> <NPUB>` |
+
+For production, SSH key-based auth is recommended. Uncomment and configure `ansible_ssh_private_key_file` in `inventory/hosts.yml`:
+
+```yaml
+all:
+  hosts:
+    tollgate-vps:
+      ansible_host: "{{ vps_ip }}"
+      ansible_user: root
+      ansible_ssh_private_key_file: ~/.ssh/tollgate
+```
+
+Generate a key if needed:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/tollgate
+ssh-copy-id -i ~/.ssh/tollgate root@<YOUR_VPS_IP>
+```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `./scripts/deploy-mint.sh <npub>` | Deploy a new mint for an operator |
-| `./scripts/list-mints.sh` | List all deployed mints |
-| `./scripts/remove-mint.sh <subdomain>` | Remove a mint and its data |
+| `./scripts/setup-vps.sh <vps-ip>` | Provision VPS with Docker, Traefik, and firewall (run once) |
+| `./scripts/deploy-mint.sh <vps-ip> <npub>` | Deploy a new mint for an operator |
+| `./scripts/list-mints.sh <vps-ip>` | List all deployed mints |
+| `./scripts/remove-mint.sh <vps-ip> <subdomain>` | Remove a mint and its data |
 
 ## How Subdomains Work
 
@@ -141,25 +193,49 @@ npub1a3b7c9d2e4f1... → a3b7c9d2e4f1.mints.tollgate.me
 
 TollGate clients can derive the mint URL from an operator's npub without any lookup — they just take the same 12-character slice.
 
-You can also assign human-readable subdomains with the second argument to `deploy-mint.sh`.
+You can also assign a custom subdomain:
+
+```bash
+./scripts/deploy-mint.sh <YOUR_VPS_IP> <OPERATOR_NPUB> my-custom-name
+```
 
 ## Configuration Reference
 
+All configuration lives in `group_vars/all.yml`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `vps_ip` | — | VPS IP address (required) |
+| `tls_enabled` | `false` | `false` = HTTP + sslip.io, `true` = HTTPS + custom domain |
+| `mint_domain` | `mints.tollgate.me` | Base domain (production only) |
+| `acme_email` | `admin@tollgate.me` | Let's Encrypt contact email |
+| `acme_dns_provider` | `cloudflare` | DNS provider for ACME challenge |
+| `acme_env_vars` | — | Provider-specific API credentials |
+| `traefik_version` | `v3.6` | Traefik Docker image tag |
+| `cdk_mintd_image` | `cashubtc/mintd:latest` | CDK mint Docker image |
+| `cdk_mintd_ln_backend` | `fakewallet` | Lightning backend (see below) |
+| `cdk_mintd_database` | `sqlite` | Database engine |
+| `docker_network_name` | `tollgate-net` | Shared Docker network name |
+
 ### Lightning Backend
 
-Controlled by `cdk_mintd_ln_backend` in `group_vars/all.yml`:
+Controlled by `cdk_mintd_ln_backend`:
 
 | Value | Use Case |
 |-------|----------|
 | `fakewallet` | Testing / development. Quotes auto-fill, no real sats. |
 | `ldk-node` | Production. Embedded LN node per mint. |
-| `cln` | Production. Requires external Core Lightning. |
-| `lnd` | Production. Requires external LND. |
-| `lnbits` | Production. Requires LNbits instance. |
+| `cln` | Production. Requires external Core Lightning node. |
+| `lnd` | Production. Requires external LND node. |
+| `lnbits` | Production. Requires external LNbits instance. |
 
-To switch a deployed mint to a real Lightning backend, update the env vars in its `docker-compose.yml` at `/opt/tollgate/mints/<subdomain>/docker-compose.yml` and restart with `docker compose up -d`.
+To switch a deployed mint's backend, edit its `docker-compose.yml` at `/opt/tollgate/mints/<subdomain>/docker-compose.yml` on the VPS and restart:
 
-### File Layout on VPS
+```bash
+cd /opt/tollgate/mints/<subdomain> && docker compose up -d
+```
+
+## VPS File Layout
 
 ```
 /opt/tollgate/
@@ -172,42 +248,41 @@ To switch a deployed mint to a real Lightning backend, update the env vars in it
     ├── registry.csv          # All deployed mints
     ├── a3b7c9d2e4f1/         # Per-mint directory
     │   ├── docker-compose.yml
-    │   ├── operator.env      # npub, subdomain, created
+    │   ├── operator.env      # npub, subdomain, mnemonic, created
     │   └── cdk-mintd.db      # SQLite database (auto-created)
     └── f8e7d6c5b4a3/
         └── ...
 ```
 
-## Moving to Production
-
-When ready to move beyond fakewallet:
-
-1. **LDK-node** is the simplest path — it's an embedded Lightning node that doesn't need external infrastructure. Set `cdk_mintd_ln_backend: "ldk-node"` and add LDK-specific env vars (network, esplora URL, etc.) to the mint docker-compose template.
-
-2. **Shared Lightning node** — run one CLN/LND instance on the VPS and point all mints at it. More resource-efficient but less isolated.
-
-3. **Kubernetes** — when you're running 50+ mints, consider migrating from Docker Compose to K8s. The container images and env vars stay the same; you'd just replace the docker-compose templates with Helm charts or K8s manifests.
-
 ## Troubleshooting
 
-**Playbook fails on OS check:**
-- Only Ubuntu 20.04+ and Debian 11+ are supported
-- The playbook auto-detects the distro and uses the correct Docker repo (docker.com/linux/ubuntu vs docker.com/linux/debian)
+**"sshpass is required" error:**
 
-**Firewall:**
-- On Ubuntu, the playbook uses UFW (the standard Ubuntu firewall)
-- On Debian, it falls back to raw iptables with `iptables-persistent` to save rules across reboots
+Install sshpass for password-based SSH:
+```bash
+# macOS
+brew install hudochenkov/sshpass/sshpass
+# Ubuntu/Debian
+apt install sshpass
+```
 
-**Mint not reachable after deploy:**
-- Check wildcard DNS: `dig a3b7c9d2e4f1.mints.tollgate.me` should return your VPS IP
-- Check Traefik logs: `docker logs traefik`
-- Check mint logs: `docker logs mint-a3b7c9d2e4f1`
+**Mint health check fails:**
 
-**TLS certificate errors:**
-- Traefik needs time to issue the wildcard cert on first run
-- Verify your DNS provider API credentials in `group_vars/all.yml`
-- Check ACME state: `cat /opt/tollgate/traefik/acme/acme.json | python3 -m json.tool`
+SSH into the VPS and check container logs:
+```bash
+docker logs mint-<subdomain>
+```
 
-**Mint container won't start:**
-- Check if port conflicts exist: `docker ps`
-- Inspect: `docker inspect mint-<subdomain>`
+**Port 80 already in use:**
+
+The Traefik role automatically stops non-Traefik containers using port 80 during setup. If the issue persists, check for system services:
+```bash
+ss -tlnp | grep :80
+```
+
+**TLS certificate not provisioning:**
+
+Verify your DNS provider credentials in `group_vars/all.yml` and ensure the wildcard DNS record is correctly configured:
+```bash
+dig +short '*.<YOUR_DOMAIN>'
+```

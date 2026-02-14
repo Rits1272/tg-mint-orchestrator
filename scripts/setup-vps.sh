@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy-mint.sh - Deploy a TollGate Cashu mint for an operator
+# setup-vps.sh - Provision a VPS with Docker, Traefik, and firewall
 # =============================================================================
 #
 # Usage:
-#   ./scripts/deploy-mint.sh <vps-ip> <npub> [custom-subdomain]
-#   ./scripts/deploy-mint.sh -p <ssh-password> <vps-ip> <npub> [custom-subdomain]
+#   ./scripts/setup-vps.sh <vps-ip>
+#   ./scripts/setup-vps.sh -p <ssh-password> <vps-ip>
 #
 # SSH auth (pick one):
 #   -p <password>          Pass SSH password directly
 #   TG_SSH_PASS=<password> Set via environment variable
-#   (neither)              Prompts interactively
+#   (neither)              Uses SSH key or prompts interactively
 #
 # Examples:
-#   ./scripts/deploy-mint.sh 203.0.113.10 npub1a3b7...
-#   ./scripts/deploy-mint.sh -p MyPass123 203.0.113.10 npub1a3b7...
-#   TG_SSH_PASS=MyPass123 ./scripts/deploy-mint.sh 203.0.113.10 npub1a3b7...
+#   ./scripts/setup-vps.sh 203.0.113.10
+#   ./scripts/setup-vps.sh -p MyPass123 203.0.113.10
+#   TG_SSH_PASS=MyPass123 ./scripts/setup-vps.sh 203.0.113.10
 #
 set -euo pipefail
 
@@ -36,42 +36,24 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-if [ $# -lt 2 ]; then
-    echo "Usage: $0 [-p <ssh-password>] <vps-ip> <npub> [custom-subdomain]"
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 [-p <ssh-password>] <vps-ip>"
     echo ""
-    echo "  vps-ip            IP address of the target VPS"
-    echo "  npub              Nostr public key of the TollGate operator"
-    echo "  custom-subdomain  Optional: custom subdomain prefix (default: derived from npub)"
+    echo "  Installs Docker, Traefik, and configures the firewall on the VPS."
+    echo "  Run this once before deploying any mints."
     exit 1
 fi
 
 VPS_IP="$1"
-NPUB="$2"
-
-# Validate npub format (npub1 + 58 bech32 chars)
-if ! echo "$NPUB" | grep -qE '^npub1[a-z0-9]{58}$'; then
-    echo "Error: Invalid npub format."
-    echo "Expected: npub1 followed by 58 lowercase alphanumeric characters"
-    echo "Got:      $NPUB"
-    exit 1
-fi
-
-# Derive subdomain preview
-SUBDOMAIN="${3:-$(echo "$NPUB" | cut -c6-17)}"
 
 echo "============================================"
-echo " TollGate Mint Deployment"
+echo " TollGate VPS Setup"
 echo "============================================"
-echo " VPS      : $VPS_IP"
-echo " Operator : $NPUB"
-echo " Subdomain: $SUBDOMAIN"
+echo " VPS: $VPS_IP"
 echo "============================================"
 echo ""
 
-EXTRA_VARS="-e vps_ip=$VPS_IP -e npub=$NPUB"
-if [ $# -ge 3 ]; then
-    EXTRA_VARS="$EXTRA_VARS -e mint_subdomain=$3"
-fi
+EXTRA_VARS="-e vps_ip=$VPS_IP"
 
 # SSH auth
 SSH_ARGS=""
@@ -88,4 +70,4 @@ else
 fi
 
 cd "$PROJECT_DIR"
-ansible-playbook playbook.yml --tags mint $EXTRA_VARS $SSH_ARGS
+ansible-playbook playbook.yml --tags setup $EXTRA_VARS $SSH_ARGS

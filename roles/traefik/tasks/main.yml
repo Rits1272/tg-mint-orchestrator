@@ -3,6 +3,19 @@
 # Traefik role: Deploy reverse proxy with wildcard TLS
 # =============================================================================
 
+- name: Stop containers using port 80
+  ansible.builtin.shell: |
+    for cid in $(docker ps -q --filter "publish=80"); do
+      name=$(docker inspect --format '{{ '{{' }}.Name{{ '}}' }}' "$cid" | sed 's|^/||')
+      if [ "$name" != "traefik" ]; then
+        docker update --restart=no "$cid" 2>/dev/null || true
+        docker stop "$cid" 2>/dev/null || true
+        echo "Stopped: $name"
+      fi
+    done
+  register: port_cleanup
+  changed_when: port_cleanup.stdout | length > 0
+
 - name: Template Traefik static config
   ansible.builtin.template:
     src: traefik.yml.j2

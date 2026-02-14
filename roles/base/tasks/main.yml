@@ -4,13 +4,15 @@
 # Compatible with: Ubuntu 20.04+, Debian 11+
 # =============================================================================
 
-- name: Verify supported OS
+- name: Verify supported OS and version
   ansible.builtin.assert:
     that:
       - ansible_distribution in ['Ubuntu', 'Debian']
+      - (ansible_distribution == 'Ubuntu' and ansible_distribution_version is version('20.04', '>=')) or
+        (ansible_distribution == 'Debian' and ansible_distribution_major_version is version('11', '>='))
     fail_msg: >
       Unsupported OS: {{ ansible_distribution }} {{ ansible_distribution_version }}.
-      This playbook supports Ubuntu 20.04+ and Debian 11+.
+      This playbook requires Ubuntu 20.04+ or Debian 11+.
 
 - name: Set OS-specific variables
   ansible.builtin.set_fact:
@@ -30,9 +32,7 @@
       - ca-certificates
       - curl
       - gnupg
-      - bash
       - python3-pip
-      - python3-venv
     state: present
 
 # --- Docker Installation ---
