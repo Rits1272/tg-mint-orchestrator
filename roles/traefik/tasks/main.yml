@@ -1,0 +1,28 @@
+---
+# =============================================================================
+# Traefik role: Deploy reverse proxy with wildcard TLS
+# =============================================================================
+
+- name: Template Traefik static config
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_data_dir }}/traefik.yml"
+    mode: "0644"
+
+- name: Ensure ACME storage file exists
+  ansible.builtin.file:
+    path: "{{ traefik_data_dir }}/acme/acme.json"
+    state: touch
+    mode: "0600"
+
+- name: Template Traefik docker-compose
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ traefik_data_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Start Traefik
+  community.docker.docker_compose_v2:
+    project_src: "{{ traefik_data_dir }}"
+    state: present
+    pull: always

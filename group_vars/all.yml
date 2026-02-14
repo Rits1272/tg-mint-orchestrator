@@ -1,0 +1,45 @@
+# =============================================================================
+# TollGate Cashu Mint Infrastructure - Global Variables
+# =============================================================================
+
+# --- VPS Connection ---
+vps_ip: "<ip>"
+
+# --- Mode ---
+# Set to false for testing without a domain (uses sslip.io + HTTP only)
+# Set to true for production with a real domain + Let's Encrypt TLS
+tls_enabled: false
+
+# --- Domain Configuration ---
+# When tls_enabled: true  -> uses mint_domain (you need wildcard DNS)
+# When tls_enabled: false -> auto-generates: mints.<vps_ip>.sslip.io (free, no setup)
+mint_domain: "mints.tollgate.me"
+
+# --- TLS / Let's Encrypt (only used when tls_enabled: true) ---
+acme_email: "admin@tollgate.me"
+
+# DNS provider for wildcard cert ACME challenge
+# Supported: cloudflare, digitalocean, route53, namecheap, etc.
+# See: https://doc.traefik.io/traefik/https/acme/#providers
+acme_dns_provider: "cloudflare"
+
+# Provider-specific env vars (example for Cloudflare)
+# Override these with --extra-vars or in a vault file
+acme_env_vars:
+  CF_API_EMAIL: "your-cloudflare-email"
+  CF_DNS_API_TOKEN: "your-cloudflare-api-token"
+
+# --- Traefik ---
+traefik_version: "v3.6"
+traefik_dashboard_enabled: false
+traefik_data_dir: "/opt/tollgate/traefik"
+
+# --- CDK Mint Defaults ---
+cdk_mintd_image: "cashubtc/mintd:latest"
+cdk_mintd_ln_backend: "fakewallet"    # fakewallet for testing, ldk-node for production
+cdk_mintd_database: "sqlite"
+mint_data_base_dir: "/opt/tollgate/mints"
+
+# --- Mint Network ---
+# Internal Docker network shared by Traefik and all mint containers
+docker_network_name: "tollgate-net"

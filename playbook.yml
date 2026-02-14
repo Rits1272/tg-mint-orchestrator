@@ -1,0 +1,91 @@
+# =============================================================================
+# TollGate Cashu Mint Deployment Playbook
+# =============================================================================
+#
+# TESTING (no domain needed):
+#
+#   1. Set vps_ip in group_vars/all.yml (tls_enabled defaults to false)
+#   2. Setup VPS:
+#        ansible-playbook playbook.yml --tags setup -e vps_ip=203.0.113.10
+#   3. Deploy a mint:
+#        ansible-playbook playbook.yml --tags mint \
+#          -e vps_ip=203.0.113.10 \
+#          -e npub=npub1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+#   4. Mint will be at:
+#        http://<shortid>.mints.203.0.113.10.sslip.io
+#
+# PRODUCTION (with domain + TLS):
+#
+#   1. Set tls_enabled: true and configure mint_domain + ACME in group_vars/all.yml
+#   2. Setup VPS:
+#        ansible-playbook playbook.yml --tags setup -e vps_ip=203.0.113.10
+#   3. Deploy a mint:
+#        ansible-playbook playbook.yml --tags mint \
+#          -e vps_ip=203.0.113.10 \
+#          -e npub=npub1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+#   4. Mint will be at:
+#        https://<shortid>.mints.tollgate.me
+#
+# =============================================================================
+
+---
+- name: TollGate Cashu Mint Infrastructure
+  hosts: tollgate-vps
+  become: true
+
+  pre_tasks:
+    # --- Resolve effective domain ---
+    # In test mode: use sslip.io for free wildcard DNS with no setup
+    # In production: use the real mint_domain
+    - name: Set effective domain (test mode - sslip.io)
+      when: not tls_enabled
+      tags: [setup, mint]
+      ansible.builtin.set_fact:
+        effective_domain: "mints.{{ vps_ip }}.sslip.io"
+        mint_scheme: "http"
+
+    - name: Set effective domain (production - real domain)
+      when: tls_enabled
+      tags: [setup, mint]
+      ansible.builtin.set_fact:
+        effective_domain: "{{ mint_domain }}"
+        mint_scheme: "https"
+
+    - name: Print effective domain
+      tags: [setup, mint]
+      ansible.builtin.debug:
+        msg: "Mint base domain: {{ mint_scheme }}://*.{{ effective_domain }}"
+
+    # --- Derive mint subdomain from npub ---
+    - name: Derive mint subdomain from npub
+      when: npub is defined and mint_subdomain is not defined
+      tags: [mint]
+      block:
+        - name: Validate npub format
+          ansible.builtin.assert:
+            that:
+              - npub is match('^npub1[a-z0-9]{58}$')
+            fail_msg: "Invalid npub format. Expected: npub1<58 chars of lowercase alphanumeric>"
+
+        - name: Set mint_subdomain from npub
+          ansible.builtin.set_fact:
+            mint_subdomain: "{{ npub[5:17] }}"
+
+    - name: Set mint FQDN and container details
+      when: npub is defined
+      tags: [mint]
+      ansible.builtin.set_fact:
+        mint_fqdn: "{{ mint_subdomain }}.{{ effective_domain }}"
+        mint_container_name: "mint-{{ mint_subdomain }}"
+        mint_data_dir: "{{ mint_data_base_dir }}/{{ mint_subdomain }}"
+
+  roles:
+    - role: base
+      tags: [setup]
+
+    - role: traefik
+      tags: [setup]
+
+    - role: mint
+      tags: [mint]
+      when: npub is defined
