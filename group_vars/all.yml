@@ -3,7 +3,7 @@
 # =============================================================================
 
 # --- VPS Connection ---
-vps_ip: "<ip>"
+vps_ip: "YOUR_VPS_IP"
 
 # --- Mode ---
 # Set to false for testing without a domain (uses sslip.io + HTTP only)
@@ -35,7 +35,7 @@ traefik_dashboard_enabled: false
 traefik_data_dir: "/opt/tollgate/traefik"
 
 # --- CDK Mint Defaults ---
-cdk_mintd_image: "cashubtc/mintd:latest"
+cdk_mintd_image: "cashubtc/mintd:0.14.3"
 cdk_mintd_ln_backend: "fakewallet"    # fakewallet for testing, ldk-node for production
 cdk_mintd_database: "sqlite"
 mint_data_base_dir: "/opt/tollgate/mints"
@@ -43,3 +43,24 @@ mint_data_base_dir: "/opt/tollgate/mints"
 # --- Mint Network ---
 # Internal Docker network shared by Traefik and all mint containers
 docker_network_name: "tollgate-net"
+
+# --- Authentication (NUT-21/22 Blind Auth) ---
+# Set to true to restrict minting to only the operator (requires Keycloak + PostgreSQL)
+# When false, mints are open (anyone can mint). When true, auth infra is deployed with --tags setup.
+auth_enabled: false
+
+# Keycloak OIDC provider
+keycloak_image: "quay.io/keycloak/keycloak:26.0"
+keycloak_admin_user: "admin"
+keycloak_admin_password: "changeme-in-production"
+
+# PostgreSQL for auth token storage (shared instance, per-mint databases)
+auth_postgres_image: "postgres:16-alpine"
+auth_postgres_user: "tollgate"
+auth_postgres_password: "changeme-in-production"
+
+# Auth data directory on VPS
+auth_data_dir: "/opt/tollgate/auth"
+
+# Maximum blind auth tokens a wallet can hold per mint
+cdk_auth_max_bat: 50

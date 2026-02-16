@@ -11,18 +11,19 @@ Ansible playbook for deploying per-operator [CDK](https://github.com/cashubtc/cd
                           │  Traefik  │  Wildcard TLS
                           │  :80/:443 │  Let's Encrypt
                           └─────┬─────┘
-                  ┌─────────────┼─────────────┐
-                  │             │             │
-          ┌───────┴──┐  ┌──────┴───┐  ┌──────┴───┐
-          │ mint-abc │  │ mint-def │  │ mint-ghi │
-          │ cdk-mintd│  │ cdk-mintd│  │ cdk-mintd│
-          │ :8085    │  │ :8085    │  │ :8085    │
-          └──────────┘  └──────────┘  └──────────┘
-           abc.mints.    def.mints.    ghi.mints.
-           tollgate.me   tollgate.me   tollgate.me
+          ┌─────────┬──────────┼──────────────┐
+          │         │          │              │
+   ┌──────┴───┐ ┌──┴───┐ ┌───┴────┐  ┌──────┴───┐
+   │ keycloak │ │ pg   │ │mint-abc│  │ mint-def │
+   │ OIDC     │ │ auth │ │cdk-mintd  │ cdk-mintd│
+   │ (opt.)   │ │(opt.)│ │ :8085  │  │ :8085    │
+   └──────────┘ └──────┘ └────────┘  └──────────┘
+    auth.mints.  (int.)   abc.mints.   def.mints.
 
-          Each container has its own SQLite DB and
-          is tied to an operator's npub.
+          Keycloak + PostgreSQL are deployed when
+          auth_enabled: true (NUT-21/22 blind auth).
+          Each mint has its own SQLite DB and is
+          tied to an operator's npub.
 ```
 
 ## Prerequisites
@@ -38,6 +39,7 @@ Ansible playbook for deploying per-operator [CDK](https://github.com/cashubtc/cd
 - Ubuntu 20.04+ or Debian 11+ (x86_64 or arm64)
 - Root SSH access (key-based or password)
 - Ports 22, 80, and 443 open at the hosting provider level
+- Minimum 1GB RAM (2GB+ recommended if `auth_enabled: true`)
 
 **For production (optional):**
 
@@ -144,6 +146,85 @@ Add a DNS record at your registrar:
 
 The mint will be at `https://<SUBDOMAIN>.<YOUR_DOMAIN>`.
 
+---
+
+## Authenticated Minting (NUT-21/22)
+
+By default, mints are open — anyone can mint tokens. To restrict minting to only the operator (the npub owner), enable blind authentication ([NUT-21](https://cashubtc.github.io/nuts/21/)/[NUT-22](https://cashubtc.github.io/nuts/22/)).
+
+### How it works
+
+The operator pre-mints ecash tokens from their mint, then distributes them to users (e.g., WiFi customers). Users can freely swap and redeem tokens without authentication — only the initial minting is restricted.
+
+When enabled:
+- A **Keycloak** OIDC server and **PostgreSQL** database are deployed during VPS setup
+- Each mint deployment creates a Keycloak user (username = operator's npub) with a random password
+- CDK is configured to require blind auth for `mint` and `get_mint_quote` endpoints
+- All other endpoints (`swap`, `melt`, `restore`, etc.) remain open
+- Auth credentials are printed at the end of deployment and saved to `operator.env`
+
+### Protected vs Open Endpoints
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `get_mint_quote` | Blind auth | Only operator can request mint quotes |
+| `mint` | Blind auth | Only operator can mint new tokens |
+| `swap` | Open | Anyone with tokens can swap |
+| `melt` | Open | Anyone with tokens can redeem to Lightning |
+| `get_melt_quote` | Open | Anyone can request melt quotes |
+| `restore` | Open | Wallet recovery remains accessible |
+
+### Enable Authentication
+
+Edit `group_vars/all.yml`:
+
+```yaml
+auth_enabled: true
+
+# Change these in production!
+keycloak_admin_password: "<KEYCLOAK_ADMIN_PASSWORD>"
+auth_postgres_password: "<POSTGRES_PASSWORD>"
+```
+
+> **Note:** In production mode (`tls_enabled: true`), the playbook will refuse to run if passwords are still set to `changeme-in-production`. For test mode, default passwords are allowed.
+
+Then run (or re-run) setup:
+
+```bash
+./scripts/setup-vps.sh <YOUR_VPS_IP>
+```
+
+Deploy mints as usual — auth credentials will be shown in the output:
+
+```bash
+./scripts/deploy-mint.sh <YOUR_VPS_IP> <OPERATOR_NPUB>
+```
+
+The operator uses these credentials in their Cashu wallet to authenticate before minting.
+
+### Keycloak Modes
+
+| Mode | Keycloak | When |
+|------|----------|------|
+| Test (`tls_enabled: false`) | `start-dev` | Development, HTTP, relaxed hostname checks |
+| Production (`tls_enabled: true`) | `start` (optimized) | HTTPS, strict hostname, caching enabled |
+
+### Auth Configuration Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `auth_enabled` | `false` | Enable NUT-21/22 blind authentication |
+| `keycloak_image` | `quay.io/keycloak/keycloak:26.0` | Keycloak Docker image |
+| `keycloak_admin_user` | `admin` | Keycloak admin username |
+| `keycloak_admin_password` | `changeme-in-production` | Keycloak admin password |
+| `auth_postgres_image` | `postgres:16-alpine` | PostgreSQL Docker image |
+| `auth_postgres_user` | `tollgate` | PostgreSQL username |
+| `auth_postgres_password` | `changeme-in-production` | PostgreSQL password |
+| `auth_data_dir` | `/opt/tollgate/auth` | Auth services data directory |
+| `cdk_auth_max_bat` | `50` | Max blind auth tokens per wallet |
+
+---
+
 ## SSH Authentication
 
 All scripts support three methods for SSH auth:
@@ -176,10 +257,11 @@ ssh-copy-id -i ~/.ssh/tollgate root@<YOUR_VPS_IP>
 
 | Command | Description |
 |---------|-------------|
-| `./scripts/setup-vps.sh <vps-ip>` | Provision VPS with Docker, Traefik, and firewall (run once) |
+| `./scripts/setup-vps.sh <vps-ip>` | Provision VPS with Docker, Traefik, firewall, and auth (run once) |
 | `./scripts/deploy-mint.sh <vps-ip> <npub>` | Deploy a new mint for an operator |
 | `./scripts/list-mints.sh <vps-ip>` | List all deployed mints |
-| `./scripts/remove-mint.sh <vps-ip> <subdomain>` | Remove a mint and its data |
+| `./scripts/remove-mint.sh <vps-ip> <subdomain>` | Remove a mint and clean up auth resources |
+| `./scripts/teardown.sh <vps-ip>` | Reset VPS — removes all mints, auth, Traefik, and data |
 
 ## How Subdomains Work
 
@@ -212,9 +294,9 @@ All configuration lives in `group_vars/all.yml`.
 | `acme_dns_provider` | `cloudflare` | DNS provider for ACME challenge |
 | `acme_env_vars` | — | Provider-specific API credentials |
 | `traefik_version` | `v3.6` | Traefik Docker image tag |
-| `cdk_mintd_image` | `cashubtc/mintd:latest` | CDK mint Docker image |
+| `cdk_mintd_image` | `cashubtc/mintd:0.14.3` | CDK mint Docker image |
 | `cdk_mintd_ln_backend` | `fakewallet` | Lightning backend (see below) |
-| `cdk_mintd_database` | `sqlite` | Database engine |
+| `cdk_mintd_database` | `sqlite` | Database engine for mint data |
 | `docker_network_name` | `tollgate-net` | Shared Docker network name |
 
 ### Lightning Backend
@@ -244,11 +326,17 @@ cd /opt/tollgate/mints/<subdomain> && docker compose up -d
 │   ├── docker-compose.yml    # Traefik container
 │   └── acme/
 │       └── acme.json         # TLS certificates
+├── auth/                     # Only when auth_enabled: true
+│   ├── docker-compose.yml    # Keycloak + PostgreSQL
+│   ├── admin.env             # Auth admin credentials (mode 0600)
+│   ├── realm-import/
+│   │   └── realm-tollgate.json  # OIDC realm config
+│   └── postgres-data/        # PostgreSQL data
 └── mints/
     ├── registry.csv          # All deployed mints
     ├── a3b7c9d2e4f1/         # Per-mint directory
     │   ├── docker-compose.yml
-    │   ├── operator.env      # npub, subdomain, mnemonic, created
+    │   ├── operator.env      # npub, mnemonic, auth credentials (mode 0600)
     │   └── cdk-mintd.db      # SQLite database (auto-created)
     └── f8e7d6c5b4a3/
         └── ...
@@ -273,6 +361,17 @@ SSH into the VPS and check container logs:
 docker logs mint-<subdomain>
 ```
 
+**Keycloak not starting (auth_enabled: true):**
+
+Check Keycloak logs:
+```bash
+docker logs keycloak
+```
+
+Common issues:
+- PostgreSQL not ready yet — Keycloak depends on a healthy postgres container, give it a minute
+- Port 8080 conflict — Keycloak binds to `127.0.0.1:8080`, check nothing else uses it
+
 **Port 80 already in use:**
 
 The Traefik role automatically stops non-Traefik containers using port 80 during setup. If the issue persists, check for system services:
@@ -286,3 +385,21 @@ Verify your DNS provider credentials in `group_vars/all.yml` and ensure the wild
 ```bash
 dig +short '*.<YOUR_DOMAIN>'
 ```
+
+**"Default passwords detected" error:**
+
+In production mode (`tls_enabled: true`), the playbook rejects the default `changeme-in-production` passwords. Set real passwords:
+```bash
+ansible-playbook playbook.yml --tags setup \
+  -e keycloak_admin_password="<REAL_PASSWORD>" \
+  -e auth_postgres_password="<REAL_PASSWORD>"
+```
+
+**Auth cleanup on mint removal:**
+
+When removing a mint (`remove-mint.sh`), the script automatically:
+1. Deletes the Keycloak user for the operator
+2. Drops the per-mint auth PostgreSQL database
+3. Removes the mint container and data
+
+If auth services aren't running, auth cleanup is silently skipped.

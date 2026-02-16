@@ -48,6 +48,69 @@
     mint_mnemonic: "{{ generated_mnemonic.stdout }}"
     mint_pubkey_hex: "{{ npub_hex_result.stdout }}"
 
+# --- Auth: Create per-mint Keycloak user and PostgreSQL database ---
+- name: Provision auth for operator
+  when: auth_enabled | default(false) | bool
+  block:
+    - name: Generate random password for operator
+      ansible.builtin.set_fact:
+        operator_auth_password: "{{ lookup('password', '/dev/null length=24 chars=ascii_letters,digits') }}"
+
+    - name: Check if per-mint auth database exists
+      ansible.builtin.command:
+        cmd: "docker exec postgres psql -U {{ auth_postgres_user }} -d keycloak -tAc \"SELECT 1 FROM pg_database WHERE datname = '{{ mint_auth_db }}'\""
+      register: db_exists_check
+      changed_when: false
+
+    - name: Create per-mint auth database
+      ansible.builtin.command:
+        cmd: "docker exec postgres psql -U {{ auth_postgres_user }} -d keycloak -c \"CREATE DATABASE {{ mint_auth_db }}\""
+      when: "'1' not in db_exists_check.stdout"
+
+    - name: Get Keycloak admin token
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/realms/master/protocol/openid-connect/token"
+        method: POST
+        body_format: form-urlencoded
+        body:
+          grant_type: "password"
+          client_id: "admin-cli"
+          username: "{{ keycloak_admin_user }}"
+          password: "{{ keycloak_admin_password }}"
+        status_code: 200
+      register: kc_token_response
+
+    - name: Set Keycloak admin token
+      ansible.builtin.set_fact:
+        kc_admin_token: "{{ kc_token_response.json.access_token }}"
+
+    - name: Check if Keycloak user already exists
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/admin/realms/tollgate/users?username={{ npub }}&exact=true"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ kc_admin_token }}"
+        status_code: 200
+      register: kc_user_check
+
+    - name: Create Keycloak user for operator
+      when: kc_user_check.json | length == 0
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:8080/admin/realms/tollgate/users"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ kc_admin_token }}"
+          Content-Type: "application/json"
+        body_format: json
+        body:
+          username: "{{ npub }}"
+          enabled: true
+          credentials:
+            - type: "password"
+              value: "{{ operator_auth_password }}"
+              temporary: false
+        status_code: 201
+
 # Write the npub and mnemonic to a file in the mint's data dir for reference
 - name: Record operator metadata
   ansible.builtin.copy:
@@ -58,6 +121,11 @@
       fqdn={{ mint_fqdn }}
       mnemonic={{ mint_mnemonic }}
       created={{ ansible_date_time.iso8601 }}
+      {% if auth_enabled | default(false) %}
+      auth_username={{ npub }}
+      auth_password={{ operator_auth_password }}
+      auth_db={{ mint_auth_db }}
+      {% endif %}
     dest: "{{ mint_data_dir }}/operator.env"
     mode: "0600"
 
@@ -105,6 +173,14 @@
        Data dir      : {{ mint_data_dir }}
        LN Backend    : {{ cdk_mintd_ln_backend }}
        Mode          : {{ 'PRODUCTION (TLS)' if tls_enabled else 'TEST (HTTP, sslip.io)' }}
+      {% if auth_enabled | default(false) %}
+       Auth          : ENABLED (NUT-21/22 Blind Auth)
+       Auth Server   : {{ mint_scheme }}://{{ auth_fqdn }}
+       Auth Username : {{ npub }}
+       Auth Password : {{ operator_auth_password }}
+      {% else %}
+       Auth          : DISABLED (open mint)
+      {% endif %}
       ============================================
 
        Clients can connect to this mint at:

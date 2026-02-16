@@ -65,6 +65,7 @@ echo " TollGate VPS Teardown"
 echo "============================================"
 echo " This will remove:"
 echo "   - All mint containers and data"
+echo "   - Auth services (Keycloak + PostgreSQL) if deployed"
 echo "   - Traefik reverse proxy"
 echo "   - Docker network (tollgate-net)"
 echo "   - All data under /opt/tollgate"
@@ -94,6 +95,13 @@ for dir in /opt/tollgate/mints/*/; do
         echo "    Stopped: $(basename $dir)"
     fi
 done
+
+echo "==> Stopping auth services (Keycloak + PostgreSQL)..."
+if [ -f /opt/tollgate/auth/docker-compose.yml ]; then
+    cd /opt/tollgate/auth
+    docker compose down --volumes 2>/dev/null || true
+fi
+docker rm -f keycloak postgres 2>/dev/null || true
 
 echo "==> Stopping Traefik..."
 if [ -f /opt/tollgate/traefik/docker-compose.yml ]; then

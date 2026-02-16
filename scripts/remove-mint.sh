@@ -82,6 +82,41 @@ cd "$PROJECT_DIR"
 ansible tollgate-vps $EXTRA_VARS $SSH_ARGS -m shell -a "
     cd ${DATA_DIR} && docker compose down --volumes 2>/dev/null || true
     docker rm -f ${CONTAINER} 2>/dev/null || true
+
+    # Clean up auth resources if auth services are deployed
+    if docker ps -q -f name=keycloak 2>/dev/null | grep -q .; then
+        echo '==> Cleaning up auth resources...'
+
+        # Source admin credentials
+        . /opt/tollgate/auth/admin.env 2>/dev/null || true
+
+        # Read operator npub from metadata
+        NPUB=\$(grep '^npub=' ${DATA_DIR}/operator.env 2>/dev/null | cut -d= -f2) || true
+
+        # Delete Keycloak user
+        if [ -n \"\${NPUB:-}\" ] && [ -n \"\${KEYCLOAK_ADMIN_PASSWORD:-}\" ]; then
+            KC_TOKEN=\$(curl -sf -X POST http://127.0.0.1:8080/realms/master/protocol/openid-connect/token \
+                -d \"grant_type=password&client_id=admin-cli&username=\${KEYCLOAK_ADMIN_USER}&password=\${KEYCLOAK_ADMIN_PASSWORD}\" \
+                2>/dev/null | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"access_token\"])' 2>/dev/null) || true
+
+            if [ -n \"\${KC_TOKEN:-}\" ]; then
+                USER_ID=\$(curl -sf -H \"Authorization: Bearer \${KC_TOKEN}\" \
+                    \"http://127.0.0.1:8080/admin/realms/tollgate/users?username=\${NPUB}&exact=true\" \
+                    2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d[0][\"id\"] if d else \"\")' 2>/dev/null) || true
+
+                if [ -n \"\${USER_ID:-}\" ]; then
+                    curl -sf -X DELETE -H \"Authorization: Bearer \${KC_TOKEN}\" \
+                        \"http://127.0.0.1:8080/admin/realms/tollgate/users/\${USER_ID}\" 2>/dev/null || true
+                    echo \"    Deleted Keycloak user: \${NPUB}\"
+                fi
+            fi
+        fi
+
+        # Drop per-mint auth database
+        docker exec postgres psql -U \${AUTH_POSTGRES_USER:-tollgate} -d keycloak -c \"DROP DATABASE IF EXISTS auth_${SUBDOMAIN}\" 2>/dev/null || true
+        echo \"    Dropped auth database: auth_${SUBDOMAIN}\"
+    fi
+
     rm -rf ${DATA_DIR}
     sed -i '/${SUBDOMAIN}/d' /opt/tollgate/mints/registry.csv 2>/dev/null || true
     echo 'Mint ${SUBDOMAIN} removed.'

@@ -56,6 +56,20 @@
       ansible.builtin.debug:
         msg: "Mint base domain: {{ mint_scheme }}://*.{{ effective_domain }}"
 
+    # --- Derive auth FQDN (when auth is enabled) ---
+    - name: Set auth FQDN
+      when: auth_enabled | default(false) | bool
+      tags: [setup, mint]
+      ansible.builtin.set_fact:
+        auth_fqdn: "auth.{{ effective_domain }}"
+        auth_openid_discovery: "{{ mint_scheme }}://auth.{{ effective_domain }}/realms/tollgate/.well-known/openid-configuration"
+
+    - name: Print auth configuration
+      when: auth_enabled | default(false) | bool
+      tags: [setup, mint]
+      ansible.builtin.debug:
+        msg: "Auth enabled: Keycloak at {{ mint_scheme }}://{{ auth_fqdn }}"
+
     # --- Derive mint subdomain from npub ---
     - name: Derive mint subdomain from npub
       when: npub is defined and mint_subdomain is not defined
@@ -79,12 +93,22 @@
         mint_container_name: "mint-{{ mint_subdomain }}"
         mint_data_dir: "{{ mint_data_base_dir }}/{{ mint_subdomain }}"
 
+    - name: Set per-mint auth database name
+      when: npub is defined and (auth_enabled | default(false) | bool)
+      tags: [mint]
+      ansible.builtin.set_fact:
+        mint_auth_db: "auth_{{ mint_subdomain }}"
+
   roles:
     - role: base
       tags: [setup]
 
     - role: traefik
       tags: [setup]
+
+    - role: auth
+      tags: [setup]
+      when: auth_enabled | default(false) | bool
 
     - role: mint
       tags: [mint]

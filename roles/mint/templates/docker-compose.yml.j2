@@ -21,8 +21,30 @@ services:
       CDK_MINTD_MINT_PUBKEY: "{{ mint_pubkey_hex }}"
       CDK_MINTD_MINT_DESCRIPTION: "TollGate mint for {{ npub }}"
       CDK_MINTD_MINT_CONTACT_NOSTR: "{{ mint_pubkey_hex }}"
+
+{% if auth_enabled | default(false) %}
+      # --- NUT-21/22 Blind Authentication ---
+      CDK_MINTD_AUTH_ENABLED: "true"
+      CDK_MINTD_AUTH_OPENID_DISCOVERY: "{{ mint_scheme }}://{{ auth_fqdn }}/realms/tollgate/.well-known/openid-configuration"
+      CDK_MINTD_AUTH_OPENID_CLIENT_ID: "cashu-client"
+      CDK_MINTD_AUTH_MINT_MAX_BAT: "{{ cdk_auth_max_bat }}"
+
+      # Per-endpoint auth: protect minting, leave swap/melt open
+      CDK_MINTD_AUTH_GET_MINT_QUOTE: "blind"
+      CDK_MINTD_AUTH_MINT: "blind"
+      CDK_MINTD_AUTH_CHECK_MINT_QUOTE: "none"
+      CDK_MINTD_AUTH_SWAP: "none"
+      CDK_MINTD_AUTH_MELT: "none"
+      CDK_MINTD_AUTH_GET_MELT_QUOTE: "none"
+      CDK_MINTD_AUTH_CHECK_MELT_QUOTE: "none"
+      CDK_MINTD_AUTH_CHECK_PROOF_STATE: "none"
+      CDK_MINTD_AUTH_RESTORE: "none"
+
+      # Auth token storage (per-mint PostgreSQL database)
+      CDK_MINTD_AUTH_POSTGRES_URL: "postgresql://{{ auth_postgres_user }}:{{ auth_postgres_password }}@postgres:5432/{{ mint_auth_db }}"
+{% endif %}
     volumes:
-      - {{ mint_data_dir }}:/root/.cdk-mintd
+      - "{{ mint_data_dir }}:/root/.cdk-mintd"
     labels:
       # --- Traefik Routing ---
       traefik.enable: "true"
