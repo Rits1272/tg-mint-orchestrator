@@ -403,3 +403,16 @@ When removing a mint (`remove-mint.sh`), the script automatically:
 3. Removes the mint container and data
 
 If auth services aren't running, auth cleanup is silently skipped.
+
+**Re-deploying a Mint**
+
+If you are re-deploying a mint for an `npub` that was previously used on the same machine, you might encounter issues with Cloudflare DNS propagation. This can happen if the old DNS records have not fully cleared.
+
+To resolve this, you can either:
+
+1.  **Wait:** It can take some time for DNS changes to propagate.
+2.  **Use a different subdomain:** When deploying the mint, provide a custom subdomain to avoid conflicts with the old one.
+
+```bash
+./scripts/deploy-mint.sh <YOUR_VPS_IP> <OPERATOR_NPUB> my-new-subdomain
+```

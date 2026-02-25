@@ -36,6 +36,7 @@ services:
       KC_DB_PASSWORD: "{{ auth_postgres_password }}"
       KC_HEALTH_ENABLED: "true"
       KC_PROXY_HEADERS: "xforwarded"
+      KC_PROXY: "edge"
 {% if tls_enabled %}
       KC_HOSTNAME: "{{ auth_fqdn }}"
 {% else %}
